@@ -1,8 +1,11 @@
 Flask==3.1.2
 Flask-Cors==4.0.1
 gunicorn==23.0.0
+waitress
 pandas
 numpy
 scikit-learn
 tensorflow
 PyJWT
+gdown
+Werkzeug
