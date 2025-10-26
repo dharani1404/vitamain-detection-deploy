@@ -27,38 +27,44 @@ DB_PATH = os.path.join(BASE_DIR, "db.sqlite3")
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# === Model Download & Load ===
+# === Model Setup (Lazy Loading) ===
 MODEL_DIR = os.path.join(BASE_DIR, "model")
 os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_model.h5")
+JSON_PATH = os.path.join(MODEL_DIR, "class_indices.json")
+CSV_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_data.csv")
 
-try:
-    if not os.path.exists(MODEL_PATH):
-        print("⬇️ Downloading model from Google Drive...")
-        drive_url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"
-        gdown.download(drive_url, MODEL_PATH, quiet=False, fuzzy=True)
-        print("✅ Model downloaded successfully.")
+model = None
+class_indices = None
+mapping = None
 
-    JSON_PATH = os.path.join(MODEL_DIR, "class_indices.json")
-    CSV_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_data.csv")
+def get_model():
+    global model, class_indices, mapping
 
-    model = load_vitamin_model(MODEL_PATH)
-    class_indices = load_class_indices(JSON_PATH)
-    mapping = load_mapping(CSV_PATH)
-    print("✅ Model & mappings loaded successfully")
+    if model is None:
+        try:
+            if not os.path.exists(MODEL_PATH):
+                print("⬇️ Downloading model from Google Drive...")
+                drive_url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"
+                gdown.download(drive_url, MODEL_PATH, quiet=False, fuzzy=True)
+                print("✅ Model downloaded successfully.")
 
-except Exception as e:
-    print("❌ Error loading model:", e)
-    traceback.print_exc()
-    model, class_indices, mapping = None, None, None
+            model = load_vitamin_model(MODEL_PATH)
+            class_indices = load_class_indices(JSON_PATH)
+            mapping = load_mapping(CSV_PATH)
+            print("✅ Model & mappings loaded successfully")
+        except Exception as e:
+            print("❌ Error loading model:", e)
+            traceback.print_exc()
+            raise e
 
+    return model, class_indices, mapping
 
 # === Database Utils ===
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
-
 
 def init_db():
     try:
@@ -100,12 +106,10 @@ def init_db():
 
 init_db()
 
-
 # === ROUTES ===
 @app.route("/")
 def home():
     return jsonify({"message": "✅ Flask backend is running"})
-
 
 @app.route("/register", methods=["POST"])
 def register():
@@ -135,7 +139,6 @@ def register():
         print("❌ /register error:", e)
         traceback.print_exc()
         return jsonify({"message": "Internal server error"}), 500
-
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -176,7 +179,6 @@ def login():
         traceback.print_exc()
         return jsonify({"message": "Internal server error"}), 500
 
-
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
@@ -187,10 +189,9 @@ def predict():
         save_path = os.path.join(UPLOAD_FOLDER, img.filename)
         img.save(save_path)
 
-        if not model:
-            return jsonify({"message": "Model not loaded"}), 500
-
+        model, class_indices, mapping = get_model()
         result = predict_vitamin_deficiency(model, class_indices, mapping, save_path)
+
         return jsonify({
             "predicted_disease": result["predicted_disease"],
             "vitamin_deficiency": result["mapped_deficiency"],
@@ -200,7 +201,6 @@ def predict():
         print("❌ /predict error:", e)
         traceback.print_exc()
         return jsonify({"message": f"Prediction error: {str(e)}"}), 500
-
 
 # === MAIN ===
 if __name__ == "__main__":
