@@ -1,7 +1,11 @@
-Flask
-Flask-C
-gunicorn
+Flask==3.1.2
+Flask-Cors==4.0.1
+gunicorn==23.1.0
 pandas
 numpy
 scikit-learn
-tensorflow    # only if your model uses it
+PyJWT
+gdown
+opencv-python-headless
+tensorflow
+waitress
