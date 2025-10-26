@@ -17,8 +17,9 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 # === Download model if not present ===
 if not os.path.exists(MODEL_PATH):
     print("🔽 Downloading model from Google Drive...")
-    url = "https://drive.google.com/file/d/1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx/view?usp=drive_link"
-    gdown.download(url, MODEL_PATH, quiet=False)
+    url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"
+    gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
+
 
     # Wait up to 60 seconds for the model to appear
     for _ in range(60):
