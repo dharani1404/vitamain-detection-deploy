@@ -1,7 +1,6 @@
 Flask
-tensorflow
-numpy
-opencv-python
-pandas
-gdown
 gunicorn
+pandas
+numpy
+scikit-learn
+tensorflow    # only if your model uses it
