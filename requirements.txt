@@ -1,11 +1,7 @@
-flask
-flask-cors
-werkzeug
-PyJWT
+Flask
 tensorflow
-opencv-python-headless
 numpy
+opencv-python
 pandas
-pillow
-gunicorn
 gdown
+gunicorn

@@ -5,7 +5,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
 import os
-import gdown  # 👈 for Google Drive download
+import gdown
+from waitress import serve  # ✅ better for production
 
 # === Import model utilities ===
 from model.model_utils import (
@@ -15,42 +16,44 @@ from model.model_utils import (
     predict_vitamin_deficiency
 )
 
-# === Configuration ===
+# === Flask App Config ===
 app = Flask(__name__)
 CORS(app)
+
+# Secrets and paths
 SECRET_KEY = os.environ.get("VITAMIN_SECRET_KEY", "vitamin_secret_key")
-DB_PATH = os.path.join(os.path.dirname(__file__), "db.sqlite3")
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
+BASE_DIR = os.path.dirname(__file__)
+DB_PATH = os.path.join(BASE_DIR, "db.sqlite3")
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# === Google Drive Model Download ===
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "model")
+# === Model Download & Load ===
+MODEL_DIR = os.path.join(BASE_DIR, "model")
 os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_model.h5")
 
-# Download model if not present
 if not os.path.exists(MODEL_PATH):
     print("⬇️ Downloading model from Google Drive...")
-    drive_url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"  # 👈 direct file ID version
+    # ✅ direct downloadable Drive link
+    drive_url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"
     gdown.download(drive_url, MODEL_PATH, quiet=False)
     print("✅ Model downloaded successfully.")
 
-# === Paths for class indices and mapping ===
+# Metadata
 JSON_PATH = os.path.join(MODEL_DIR, "class_indices.json")
 CSV_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_data.csv")
 
-# === Load model and metadata ===
+# === Load ML model & mappings ===
 model = load_vitamin_model(MODEL_PATH)
 class_indices = load_class_indices(JSON_PATH)
 mapping = load_mapping(CSV_PATH)
 
-# === Database Utility ===
+# === Database Utils ===
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
-# === Initialize DB ===
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -86,16 +89,19 @@ def init_db():
 
 init_db()
 
-# === Helper to decode JWT ===
+# === Helper: JWT Decode ===
 def decode_token(request):
-    token = None
     auth_header = request.headers.get("Authorization", "")
+    token = None
+
     if auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
     elif auth_header:
         token = auth_header
+
     if not token:
         return None, jsonify({"message": "No token provided"}), 403
+
     try:
         decoded = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         return decoded, None, None
@@ -104,7 +110,11 @@ def decode_token(request):
     except jwt.InvalidTokenError:
         return None, jsonify({"message": "Invalid token"}), 401
 
-# === Routes ===
+# === ROUTES ===
+@app.route("/")
+def home():
+    return jsonify({"message": "✅ Flask backend for Vitamin Detection is running successfully!"})
+
 @app.route("/register", methods=["POST"])
 def register():
     data = request.get_json() or {}
@@ -113,7 +123,7 @@ def register():
     email = data.get("email")
     password = data.get("password")
 
-    if not firstname or not lastname or not email or not password:
+    if not all([firstname, lastname, email, password]):
         return jsonify({"message": "All fields are required"}), 400
 
     hashed_password = generate_password_hash(password)
@@ -122,7 +132,7 @@ def register():
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO users (firstname, lastname, email, password) VALUES (?, ?, ?, ?)",
-            (firstname, lastname, email, hashed_password),
+            (firstname, lastname, email, hashed_password)
         )
         conn.commit()
         conn.close()
@@ -150,7 +160,7 @@ def login():
     payload = {
         "id": row["id"],
         "email": row["email"],
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=12),
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=12)
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
     if isinstance(token, bytes):
@@ -168,6 +178,7 @@ def login():
 def predict():
     if "image" not in request.files:
         return jsonify({"message": "No image uploaded"}), 400
+
     img = request.files["image"]
     save_path = os.path.join(UPLOAD_FOLDER, img.filename)
     img.save(save_path)
@@ -182,9 +193,7 @@ def predict():
     except Exception as e:
         return jsonify({"message": f"Prediction error: {str(e)}"}), 500
 
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ Flask backend for Vitamin Detection running successfully!"
-
+# === MAIN ENTRYPOINT ===
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    serve(app, host="0.0.0.0", port=port)  # ✅ production-safe
