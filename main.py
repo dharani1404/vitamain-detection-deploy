@@ -35,7 +35,7 @@ MODEL_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_model.h5")
 if not os.path.exists(MODEL_PATH):
     print("⬇️ Downloading model from Google Drive...")
     # ✅ direct downloadable Drive link
-    drive_url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"
+    drive_url = "https://drive.google.com/file/d/1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx/view?usp=drive_link"
     gdown.download(drive_url, MODEL_PATH, quiet=False)
     print("✅ Model downloaded successfully.")
 
