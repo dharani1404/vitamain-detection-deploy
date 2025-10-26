@@ -1,1 +1,1 @@
-web: gunicorn main:app
+web: gunicorn vitamin-detection-app.vitamin-detection-app.backend.main:app
