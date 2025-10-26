@@ -1,0 +1,11 @@
+flask
+flask-cors
+werkzeug
+PyJWT
+tensorflow
+opencv-python-headless
+numpy
+pandas
+pillow
+gunicorn
+gdown
