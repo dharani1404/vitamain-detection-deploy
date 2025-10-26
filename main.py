@@ -18,7 +18,9 @@ from model.model_utils import (
 
 # === Flask App Config ===
 app = Flask(__name__)
-CORS(app)
+
+# ✅ Allow only your Netlify frontend to call this backend
+CORS(app, resources={r"/*": {"origins": "https://gilded-twilight-1293c3.netlify.app"}})
 
 # Secrets and paths
 SECRET_KEY = os.environ.get("VITAMIN_SECRET_KEY", "vitamin_secret_key")
@@ -34,12 +36,12 @@ MODEL_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_model.h5")
 
 if not os.path.exists(MODEL_PATH):
     print("⬇️ Downloading model from Google Drive...")
-    # ✅ direct downloadable Drive link
-    drive_url = "https://drive.google.com/file/d/1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx/view?usp=drive_link"
+    # ✅ Replace this link with your own direct-download link
+    drive_url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"
     gdown.download(drive_url, MODEL_PATH, quiet=False)
     print("✅ Model downloaded successfully.")
 
-# Metadata
+# Metadata paths
 JSON_PATH = os.path.join(MODEL_DIR, "class_indices.json")
 CSV_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_data.csv")
 
@@ -53,6 +55,7 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db():
     conn = get_db()
@@ -87,6 +90,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 init_db()
 
 # === Helper: JWT Decode ===
@@ -110,10 +114,12 @@ def decode_token(request):
     except jwt.InvalidTokenError:
         return None, jsonify({"message": "Invalid token"}), 401
 
+
 # === ROUTES ===
 @app.route("/")
 def home():
     return jsonify({"message": "✅ Flask backend for Vitamin Detection is running successfully!"})
+
 
 @app.route("/register", methods=["POST"])
 def register():
@@ -139,6 +145,7 @@ def register():
         return jsonify({"message": "User registered successfully!"})
     except sqlite3.IntegrityError:
         return jsonify({"message": "User already exists"}), 400
+
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -174,6 +181,7 @@ def login():
         "email": row["email"]
     })
 
+
 @app.route("/predict", methods=["POST"])
 def predict():
     if "image" not in request.files:
@@ -192,6 +200,7 @@ def predict():
         })
     except Exception as e:
         return jsonify({"message": f"Prediction error: {str(e)}"}), 500
+
 
 # === MAIN ENTRYPOINT ===
 if __name__ == "__main__":

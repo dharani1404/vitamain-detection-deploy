@@ -10,3 +10,4 @@ PyJWT
 gdown
 Werkzeug
 opencv-python
+Pillow
