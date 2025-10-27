@@ -19,7 +19,9 @@ from model.model_utils import (
 
 # === Flask App Config ===
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "https://gilded-twilight-1293c3.netlify.app"}})
+
+# ✅ FIXED: Removed trailing slash from Netlify URL
+CORS(app, resources={r"/*": {"origins": "https://spiffy-souffle-abcc33.netlify.app"}}, supports_credentials=True)
 
 SECRET_KEY = os.environ.get("VITAMIN_SECRET_KEY", "vitamin_secret_key")
 BASE_DIR = os.path.dirname(__file__)
@@ -27,7 +29,7 @@ DB_PATH = os.path.join(BASE_DIR, "db.sqlite3")
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# === Model Setup (Lazy Loading) ===
+# === Model Setup ===
 MODEL_DIR = os.path.join(BASE_DIR, "model")
 os.makedirs(MODEL_DIR, exist_ok=True)
 MODEL_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_model.h5")
@@ -39,6 +41,7 @@ class_indices = None
 mapping = None
 
 def get_model():
+    """Lazy load model and mappings once."""
     global model, class_indices, mapping
 
     if model is None:
@@ -52,7 +55,7 @@ def get_model():
             model = load_vitamin_model(MODEL_PATH)
             class_indices = load_class_indices(JSON_PATH)
             mapping = load_mapping(CSV_PATH)
-            print("✅ Model & mappings loaded successfully")
+            print("✅ Model & mappings loaded successfully.")
         except Exception as e:
             print("❌ Error loading model:", e)
             traceback.print_exc()
@@ -67,9 +70,11 @@ def get_db():
     return conn
 
 def init_db():
+    """Initialize SQLite database tables."""
     try:
         conn = get_db()
         cur = conn.cursor()
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +84,7 @@ def init_db():
                 password TEXT
             )
         """)
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_vitamins (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +94,7 @@ def init_db():
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
         """)
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS vitamin_progress (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +104,7 @@ def init_db():
                 FOREIGN KEY(user_vitamin_id) REFERENCES user_vitamins(id)
             )
         """)
+
         conn.commit()
         conn.close()
         print("✅ Database initialized")
@@ -107,12 +115,18 @@ def init_db():
 init_db()
 
 # === ROUTES ===
+
 @app.route("/")
 def home():
-    return jsonify({"message": "✅ Flask backend is running"})
+    return jsonify({"message": "✅ Flask backend is running"}), 200
 
-@app.route("/register", methods=["POST"])
+# --- Register User ---
+@app.route("/register", methods=["POST", "OPTIONS"])
 def register():
+    if request.method == "OPTIONS":
+        # Preflight CORS check
+        return '', 200
+
     try:
         data = request.get_json() or {}
         firstname = data.get("firstname")
@@ -132,7 +146,7 @@ def register():
         )
         conn.commit()
         conn.close()
-        return jsonify({"message": "User registered successfully!"})
+        return jsonify({"message": "User registered successfully!"}), 200
     except sqlite3.IntegrityError:
         return jsonify({"message": "User already exists"}), 400
     except Exception as e:
@@ -140,8 +154,12 @@ def register():
         traceback.print_exc()
         return jsonify({"message": "Internal server error"}), 500
 
-@app.route("/login", methods=["POST"])
+# --- Login User ---
+@app.route("/login", methods=["POST", "OPTIONS"])
 def login():
+    if request.method == "OPTIONS":
+        return '', 200
+
     try:
         data = request.get_json() or {}
         email = data.get("email")
@@ -173,12 +191,13 @@ def login():
             "firstname": row["firstname"],
             "lastname": row["lastname"],
             "email": row["email"]
-        })
+        }), 200
     except Exception as e:
         print("❌ /login error:", e)
         traceback.print_exc()
         return jsonify({"message": "Internal server error"}), 500
 
+# --- Prediction ---
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
@@ -196,13 +215,15 @@ def predict():
             "predicted_disease": result["predicted_disease"],
             "vitamin_deficiency": result["mapped_deficiency"],
             "confidence": float(result["confidence"])
-        })
+        }), 200
     except Exception as e:
         print("❌ /predict error:", e)
         traceback.print_exc()
         return jsonify({"message": f"Prediction error: {str(e)}"}), 500
 
+
 # === MAIN ===
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    print(f"🚀 Server starting on port {port}")
     serve(app, host="0.0.0.0", port=port)
