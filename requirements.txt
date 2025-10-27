@@ -11,3 +11,4 @@ gdown
 Werkzeug
 opencv-python
 Pillow
+flask_sqlalchemy
