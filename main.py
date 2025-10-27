@@ -7,7 +7,8 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 from waitress import serve
-from model_utils import process_vitamin_image  # ✅ your existing model file
+from model.model_utils import process_vitamin_image
+  # ✅ your existing model file
 
 # --------------------------------------------------
 # ✅ App + Database setup
