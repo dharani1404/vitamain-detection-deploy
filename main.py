@@ -7,8 +7,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 from waitress import serve
-from model.model_utils import process_vitamin_image
-  # ✅ your existing model file
+from model.model_utils import predict_vitamin as process_vitamin_image  # ✅ FIXED IMPORT
 
 # --------------------------------------------------
 # ✅ App + Database setup
@@ -16,11 +15,10 @@ from model.model_utils import process_vitamin_image
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
-app.config["SECRET_KEY"] = "vitamin_detection_secret_key"  # keep this same everywhere
+app.config["SECRET_KEY"] = "vitamin_detection_secret_key"
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
-
 
 # --------------------------------------------------
 # ✅ Database Models
@@ -32,17 +30,14 @@ class Users(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
-
 class UserVitamin(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_email = db.Column(db.String(120), nullable=False)
     vitamin = db.Column(db.String(100))
     date = db.Column(db.String(100))
 
-
 with app.app_context():
     db.create_all()
-
 
 # --------------------------------------------------
 # ✅ JWT Decorator
@@ -67,7 +62,6 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
     return decorated
 
-
 # --------------------------------------------------
 # ✅ Register
 # --------------------------------------------------
@@ -91,7 +85,6 @@ def register():
     db.session.commit()
 
     return jsonify({"message": "User registered successfully!"}), 201
-
 
 # --------------------------------------------------
 # ✅ Login
@@ -122,7 +115,6 @@ def login():
         "email": user.email
     }), 200
 
-
 # --------------------------------------------------
 # ✅ Profile
 # --------------------------------------------------
@@ -134,7 +126,6 @@ def profile(current_user):
         "lastname": current_user.lastname,
         "email": current_user.email
     })
-
 
 # --------------------------------------------------
 # ✅ Vitamin Detection
@@ -158,7 +149,6 @@ def detect_vitamin(current_user):
 
     return jsonify({"vitamin": vitamin}), 200
 
-
 # --------------------------------------------------
 # ✅ Fetch user’s vitamins
 # --------------------------------------------------
@@ -170,7 +160,6 @@ def user_vitamins(current_user):
         {"id": r.id, "vitamin": r.vitamin, "date": r.date}
         for r in records
     ])
-
 
 # --------------------------------------------------
 # ✅ Delete vitamin record
@@ -186,14 +175,12 @@ def delete_vitamin(current_user, id):
     db.session.commit()
     return jsonify({"message": "Deleted successfully"}), 200
 
-
 # --------------------------------------------------
 # ✅ Health check
 # --------------------------------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "Vitamin Detection Backend Running"})
-
 
 # --------------------------------------------------
 # ✅ Run on Render or local

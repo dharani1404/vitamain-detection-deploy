@@ -9,20 +9,19 @@ import pandas as pd
 # === Paths ===
 MODEL_DIR = "model"
 MODEL_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_model.h5")
+CLASS_INDICES_PATH = os.path.join(MODEL_DIR, "class_indices.json")
+CSV_MAPPING_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_data.csv")
+
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 # === (Optional) Model download helper ===
 def ensure_model_downloaded():
-    """
-    Ensure that the model file exists. 
-    Downloads it from Google Drive if missing.
-    """
+    """Ensure that the model file exists. Downloads it from Google Drive if missing."""
     if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) == 0:
         print("🔽 Downloading model from Google Drive...")
         url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"
         gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
 
-        # Wait up to 60 seconds for full download
         for _ in range(60):
             if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 0:
                 print(f"✅ Model downloaded successfully ({os.path.getsize(MODEL_PATH)/1e6:.2f} MB).")
@@ -35,7 +34,6 @@ def ensure_model_downloaded():
         print("✅ Model already present.")
         return True
 
-
 # === Load class indices (disease label mapping) ===
 def load_class_indices(json_path):
     """Load the disease-to-label mapping from a JSON file."""
@@ -43,7 +41,6 @@ def load_class_indices(json_path):
         raise FileNotFoundError(f"Class index file not found: {json_path}")
     with open(json_path, "r") as f:
         return json.load(f)
-
 
 # === Load vitamin deficiency mapping ===
 def load_mapping(csv_file):
@@ -58,13 +55,9 @@ def load_mapping(csv_file):
 
     return {row["Diseases"].strip().lower(): row["Deficiency"].strip() for _, row in df.iterrows()}
 
-
 # === Load trained model ===
 def load_vitamin_model(model_path=MODEL_PATH):
-    """
-    Safely load the trained TensorFlow model.
-    TensorFlow is imported only inside this function (memory safe).
-    """
+    """Safely load the trained TensorFlow model."""
     import tensorflow as tf  # Imported here to save memory at startup
 
     try:
@@ -79,7 +72,6 @@ def load_vitamin_model(model_path=MODEL_PATH):
         print(f"❌ Error loading model: {e}")
         return None
 
-
 # === Preprocess uploaded image ===
 def preprocess_image(image_path):
     """Read and preprocess image for prediction."""
@@ -90,7 +82,6 @@ def preprocess_image(image_path):
     image = cv2.resize(image, (224, 224))
     image = image / 255.0
     return np.expand_dims(image, axis=0)
-
 
 # === Predict disease ===
 def predict_disease(model, class_indices, image_path):
@@ -106,7 +97,6 @@ def predict_disease(model, class_indices, image_path):
     confidence = float(np.max(preds))
     return predicted_class, confidence
 
-
 # === Wrapper for final output ===
 def predict_vitamin_deficiency(model, class_indices, mapping, image_path):
     """Predict vitamin deficiency from an image."""
@@ -117,3 +107,38 @@ def predict_vitamin_deficiency(model, class_indices, mapping, image_path):
         "mapped_deficiency": mapped_deficiency,
         "confidence": confidence
     }
+
+# === ✅ Main Wrapper Used by Flask ===
+def process_vitamin_image(image_file):
+    """
+    Main function used by Flask.
+    Accepts an uploaded image (FileStorage), saves temporarily,
+    loads model + mappings, predicts, and returns the deficiency name.
+    """
+    try:
+        # Ensure model exists
+        ensure_model_downloaded()
+
+        # Save uploaded image temporarily
+        temp_path = os.path.join("uploads", image_file.filename)
+        os.makedirs("uploads", exist_ok=True)
+        image_file.save(temp_path)
+
+        # Load assets
+        model = load_vitamin_model(MODEL_PATH)
+        class_indices = load_class_indices(CLASS_INDICES_PATH)
+        mapping = load_mapping(CSV_MAPPING_PATH)
+
+        # Run prediction
+        result = predict_vitamin_deficiency(model, class_indices, mapping, temp_path)
+
+        # Cleanup temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        # Return readable label
+        return result["mapped_deficiency"]
+
+    except Exception as e:
+        print(f"❌ Error in process_vitamin_image: {e}")
+        return "Error processing image"
