@@ -5,26 +5,29 @@ import cv2
 import gdown
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 
-# === Paths ===
-MODEL_DIR = "model"
+# Try to *not* import heavy tensorflow at module import time.
+# We'll import inside load_vitamin_model which is called lazily.
+MODEL_DIR = os.path.dirname(__file__) or "model"
 MODEL_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_model.h5")
 CLASS_INDICES_PATH = os.path.join(MODEL_DIR, "class_indices.json")
 CSV_MAPPING_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_data.csv")
 
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-# === Ensure model availability ===
 def ensure_model_downloaded():
     """Download the model from Google Drive if it's missing."""
     if not os.path.exists(MODEL_PATH) or os.path.getsize(MODEL_PATH) == 0:
         print("🔽 Downloading model from Google Drive...")
         url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"
-        gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
+        try:
+            gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
+        except Exception as e:
+            print("❌ gdown failed:", e)
+            return False
 
         # Wait until file is available
-        for _ in range(60):
+        for _ in range(120):  # up to 120s to be safe
             if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 0:
                 print(f"✅ Model downloaded successfully ({os.path.getsize(MODEL_PATH)/1e6:.2f} MB).")
                 return True
@@ -35,14 +38,11 @@ def ensure_model_downloaded():
         print("✅ Model already present.")
         return True
 
-
-# === Loaders ===
 def load_class_indices(json_path=CLASS_INDICES_PATH):
     if not os.path.exists(json_path):
         raise FileNotFoundError(f"Class index file not found: {json_path}")
     with open(json_path, "r") as f:
         return json.load(f)
-
 
 def load_mapping(csv_file=CSV_MAPPING_PATH):
     if not os.path.exists(csv_file):
@@ -53,12 +53,22 @@ def load_mapping(csv_file=CSV_MAPPING_PATH):
         raise ValueError(f"Invalid CSV format. Expected {expected_cols}, got {list(df.columns)}")
     return {row["Diseases"].strip().lower(): row["Deficiency"].strip() for _, row in df.iterrows()}
 
-
-# === Load model ===
 def load_vitamin_model():
-    """Load TensorFlow model safely."""
+    """Load TensorFlow model safely and lazily."""
     try:
-        ensure_model_downloaded()
+        # Import tensorflow here (only at call time)
+        import tensorflow as tf
+    except Exception as e:
+        print("❌ TensorFlow import failed:", e)
+        return None
+
+    try:
+        # Make sure model file is present (download if necessary)
+        ok = ensure_model_downloaded()
+        if not ok:
+            print("❌ ensure_model_downloaded returned False")
+            return None
+
         size_mb = os.path.getsize(MODEL_PATH) / 1e6
         print(f"📂 Loading model from: {MODEL_PATH} ({size_mb:.2f} MB)")
         model = tf.keras.models.load_model(MODEL_PATH)
@@ -68,10 +78,7 @@ def load_vitamin_model():
         print(f"❌ Error loading model: {e}")
         return None
 
-
-# === Preprocessing ===
 def preprocess_image(image_path):
-    """Preprocess image before feeding to model."""
     image = cv2.imread(image_path)
     if image is None:
         raise ValueError(f"Could not read image at {image_path}")
@@ -80,23 +87,20 @@ def preprocess_image(image_path):
     image = image / 255.0
     return np.expand_dims(image, axis=0)
 
-
-# === Prediction ===
 def predict_disease(model, class_indices, image_path):
-    """Predict disease and confidence."""
     if model is None:
         raise ValueError("Model not loaded.")
     img = preprocess_image(image_path)
     preds = model.predict(img)
-    predicted_index = np.argmax(preds, axis=1)[0]
+    predicted_index = int(np.argmax(preds, axis=1)[0])
     class_labels = list(class_indices.keys())
+    if predicted_index >= len(class_labels):
+        raise IndexError("Predicted index out of range for class indices.")
     predicted_class = class_labels[predicted_index]
     confidence = float(np.max(preds))
     return predicted_class, confidence
 
-
 def predict_vitamin_deficiency(model, class_indices, mapping, image_path):
-    """Predict vitamin deficiency from an image."""
     predicted_disease, confidence = predict_disease(model, class_indices, image_path)
     mapped_deficiency = mapping.get(predicted_disease.lower(), "No mapping found")
     return {
@@ -105,6 +109,5 @@ def predict_vitamin_deficiency(model, class_indices, mapping, image_path):
         "confidence": confidence
     }
 
-
-# === Exported alias for main.py ===
+# compatibility alias expected by main.py
 predict_vitamin = predict_vitamin_deficiency
