@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 from waitress import serve
 
-# Import ML helpers (your model_utils has the actual logic)
+# Import ML helpers
 from model.model_utils import (
     ensure_model_downloaded,
     load_vitamin_model,
@@ -18,20 +18,27 @@ from model.model_utils import (
 )
 
 # -------------------------
-# Flask + CORS setup
+# Flask setup
 # -------------------------
 app = Flask(__name__)
 
-# Use a single origin string (prevents multiple-value header issues).
-# Add your exact Netlify domain here and localhost for local testing.
+# 🔥 Frontend domain for CORS
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "https://precious-longma-59eb39.netlify.app")
 
-CORS(
-    app,
-    resources={r"/*": {"origins": FRONTEND_ORIGIN}},
-    supports_credentials=True,
-)
+# ✅ Apply CORS globally (Render safe)
+CORS(app, resources={r"/*": {"origins": [FRONTEND_ORIGIN, "http://localhost:3000"]}}, supports_credentials=True)
 
+# ✅ Extra fallback for strict CORS
+@app.after_request
+def after_request(response):
+    response.headers.add("Access-Control-Allow-Origin", FRONTEND_ORIGIN)
+    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+    response.headers.add("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+    return response
+
+# -------------------------
+# Config
+# -------------------------
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "vitamin_detection_secret_key")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -57,7 +64,7 @@ with app.app_context():
     db.create_all()
 
 # -------------------------
-# ML: lazy global variables
+# ML Model (lazy load)
 # -------------------------
 vitamin_model = None
 class_indices = None
@@ -65,38 +72,34 @@ vitamin_mapping = None
 MODEL_LOADED = False
 
 def ensure_model_loaded():
-    """Lazy-load model and mappings when needed. Returns True if loaded."""
+    """Ensure model and mapping files are loaded into memory."""
     global vitamin_model, class_indices, vitamin_mapping, MODEL_LOADED
 
     if MODEL_LOADED:
         return True
 
-    # Ensure model file is present (downloads if missing)
     ok = ensure_model_downloaded()
     if not ok:
         print("❌ ensure_model_downloaded failed")
         return False
 
-    # Load model and mapping files (wrap in try/except to avoid crash)
     try:
         vitamin_model = load_vitamin_model()
-        # load_class_indices and load_mapping use default paths inside model_utils
         class_indices = load_class_indices()
         vitamin_mapping = load_mapping()
         if vitamin_model is None:
             raise RuntimeError("vitamin_model is None after load")
         MODEL_LOADED = True
-        print("✅ Model and mappings loaded into memory.")
+        print("✅ Model and mappings loaded successfully.")
         return True
     except Exception as e:
         print("❌ Failed to load model/mappings:", e)
         return False
 
 # -------------------------
-# JWT decorator
+# JWT Auth Decorator
 # -------------------------
 def token_required(f):
-    from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         token = None
@@ -104,8 +107,10 @@ def token_required(f):
             parts = request.headers["Authorization"].split(" ")
             if len(parts) == 2:
                 token = parts[1]
+
         if not token:
             return jsonify({"message": "Missing token"}), 401
+
         try:
             data = jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
             current_user = Users.query.filter_by(email=data["email"]).first()
@@ -115,11 +120,12 @@ def token_required(f):
             return jsonify({"message": "Token expired"}), 401
         except jwt.InvalidTokenError:
             return jsonify({"message": "Invalid token"}), 401
+
         return f(current_user, *args, **kwargs)
     return decorated
 
 # -------------------------
-# Auth routes
+# Auth Routes
 # -------------------------
 @app.route("/register", methods=["POST"])
 def register():
@@ -156,7 +162,6 @@ def login():
         "exp": datetime.datetime.utcnow() + datetime.timedelta(days=1)
     }, app.config["SECRET_KEY"], algorithm="HS256")
 
-    # If token is bytes (pyjwt older), decode
     if isinstance(token, bytes):
         token = token.decode("utf-8")
 
@@ -177,13 +182,12 @@ def profile(current_user):
     })
 
 # -------------------------
-# Prediction endpoint (main)
+# Prediction Endpoint
 # -------------------------
 @app.route("/detect_vitamin", methods=["POST"])
 @token_required
 def detect_vitamin(current_user):
     try:
-        # lazy load model if not loaded
         if not ensure_model_loaded():
             return jsonify({"message": "Model not available on server"}), 500
 
@@ -196,10 +200,8 @@ def detect_vitamin(current_user):
         image_path = os.path.join(uploads, image.filename)
         image.save(image_path)
 
-        # perform prediction using model_utils.predict_vitamin
         result = predict_vitamin(vitamin_model, class_indices, vitamin_mapping, image_path)
 
-        # persist user vitamin info
         new_vitamin = UserVitamin(
             user_email=current_user.email,
             vitamin=result.get("mapped_deficiency"),
@@ -215,16 +217,13 @@ def detect_vitamin(current_user):
         return jsonify({"message": "Server error during prediction", "error": str(e)}), 500
 
 # -------------------------
-# /predict alias (some frontends use /predict)
+# Aliases & CRUD
 # -------------------------
 @app.route("/predict", methods=["POST"])
 @token_required
 def predict_alias(current_user):
     return detect_vitamin(current_user)
 
-# -------------------------
-# User vitamins & delete
-# -------------------------
 @app.route("/user_vitamins", methods=["GET"])
 @token_required
 def user_vitamins(current_user):
@@ -242,14 +241,14 @@ def delete_vitamin(current_user, id):
     return jsonify({"message": "Deleted successfully"}), 200
 
 # -------------------------
-# Health check
+# Health Check
 # -------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "Vitamin Detection Backend Running"})
 
 # -------------------------
-# Run server
+# Run the App (Waitress)
 # -------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
