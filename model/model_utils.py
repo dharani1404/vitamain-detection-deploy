@@ -9,9 +9,6 @@ import pandas as pd
 # === Paths ===
 MODEL_DIR = "model"
 MODEL_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_model.h5")
-CLASS_INDICES_PATH = os.path.join(MODEL_DIR, "class_indices.json")
-CSV_MAPPING_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_data.csv")
-
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 # === (Optional) Model download helper ===
@@ -22,6 +19,7 @@ def ensure_model_downloaded():
         url = "https://drive.google.com/uc?id=1kLvoztjLTDtINxz-Ej_El4Wu1aKL-CUx"
         gdown.download(url, MODEL_PATH, quiet=False, fuzzy=True)
 
+        # Wait up to 60 seconds for full download
         for _ in range(60):
             if os.path.exists(MODEL_PATH) and os.path.getsize(MODEL_PATH) > 0:
                 print(f"✅ Model downloaded successfully ({os.path.getsize(MODEL_PATH)/1e6:.2f} MB).")
@@ -58,7 +56,7 @@ def load_mapping(csv_file):
 # === Load trained model ===
 def load_vitamin_model(model_path=MODEL_PATH):
     """Safely load the trained TensorFlow model."""
-    import tensorflow as tf  # Imported here to save memory at startup
+    import tensorflow as tf
 
     try:
         if not os.path.exists(model_path):
@@ -108,37 +106,5 @@ def predict_vitamin_deficiency(model, class_indices, mapping, image_path):
         "confidence": confidence
     }
 
-# === ✅ Main Wrapper Used by Flask ===
-def process_vitamin_image(image_file):
-    """
-    Main function used by Flask.
-    Accepts an uploaded image (FileStorage), saves temporarily,
-    loads model + mappings, predicts, and returns the deficiency name.
-    """
-    try:
-        # Ensure model exists
-        ensure_model_downloaded()
-
-        # Save uploaded image temporarily
-        temp_path = os.path.join("uploads", image_file.filename)
-        os.makedirs("uploads", exist_ok=True)
-        image_file.save(temp_path)
-
-        # Load assets
-        model = load_vitamin_model(MODEL_PATH)
-        class_indices = load_class_indices(CLASS_INDICES_PATH)
-        mapping = load_mapping(CSV_MAPPING_PATH)
-
-        # Run prediction
-        result = predict_vitamin_deficiency(model, class_indices, mapping, temp_path)
-
-        # Cleanup temp file
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-        # Return readable label
-        return result["mapped_deficiency"]
-
-    except Exception as e:
-        print(f"❌ Error in process_vitamin_image: {e}")
-        return "Error processing image"
+# ✅ Compatibility alias so main.py never breaks again
+predict_vitamin = predict_vitamin_deficiency
