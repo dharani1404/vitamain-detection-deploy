@@ -7,19 +7,25 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 from waitress import serve
-from model.model_utils import predict_vitamin as process_vitamin_image  # ✅ Correct import
+
+# ✅ Import ML functions
+from model.model_utils import (
+    load_vitamin_model,
+    load_class_indices,
+    load_mapping,
+    predict_vitamin,
+)
 
 # --------------------------------------------------
 # ✅ App + Database setup
 # --------------------------------------------------
 app = Flask(__name__)
 
-# ✅ CORS Configuration (ALLOW ONLY YOUR FRONTEND + LOCALHOST)
 CORS(
     app,
     origins=[
-        "https://precious-longma-59eb39.netlify.app",  # ✅ your frontend domain
-        "http://localhost:3000"  # for local testing
+        "https://precious-longma-59eb39.netlify.app",  # ✅ your frontend
+        "http://localhost:3000",
     ],
     supports_credentials=True
 )
@@ -39,16 +45,21 @@ class Users(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
-
 class UserVitamin(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_email = db.Column(db.String(120), nullable=False)
-    vitamin = db.Column(db.String(100))
+    vitamin = db.Column(db.String(500))
     date = db.Column(db.String(100))
-
 
 with app.app_context():
     db.create_all()
+
+# --------------------------------------------------
+# ✅ Load Model & Mappings Once at Startup
+# --------------------------------------------------
+vitamin_model = load_vitamin_model()
+class_indices = load_class_indices()
+vitamin_mapping = load_mapping()
 
 # --------------------------------------------------
 # ✅ JWT Decorator
@@ -73,7 +84,6 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
     return decorated
 
-
 # --------------------------------------------------
 # ✅ Register
 # --------------------------------------------------
@@ -97,7 +107,6 @@ def register():
     db.session.commit()
 
     return jsonify({"message": "User registered successfully!"}), 201
-
 
 # --------------------------------------------------
 # ✅ Login
@@ -128,7 +137,6 @@ def login():
         "email": user.email
     }), 200
 
-
 # --------------------------------------------------
 # ✅ Profile
 # --------------------------------------------------
@@ -141,29 +149,36 @@ def profile(current_user):
         "email": current_user.email
     })
 
-
 # --------------------------------------------------
 # ✅ Vitamin Detection
 # --------------------------------------------------
 @app.route("/detect_vitamin", methods=["POST"])
 @token_required
 def detect_vitamin(current_user):
-    if "image" not in request.files:
-        return jsonify({"message": "No image uploaded"}), 400
+    try:
+        if "image" not in request.files:
+            return jsonify({"message": "No image uploaded"}), 400
 
-    image = request.files["image"]
-    vitamin = process_vitamin_image(image)
+        image = request.files["image"]
+        image_path = os.path.join("uploads", image.filename)
+        os.makedirs("uploads", exist_ok=True)
+        image.save(image_path)
 
-    new_vitamin = UserVitamin(
-        user_email=current_user.email,
-        vitamin=vitamin,
-        date=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    )
-    db.session.add(new_vitamin)
-    db.session.commit()
+        result = predict_vitamin(vitamin_model, class_indices, vitamin_mapping, image_path)
 
-    return jsonify({"vitamin": vitamin}), 200
+        new_vitamin = UserVitamin(
+            user_email=current_user.email,
+            vitamin=result["mapped_deficiency"],
+            date=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+        db.session.add(new_vitamin)
+        db.session.commit()
 
+        return jsonify(result), 200
+
+    except Exception as e:
+        print(f"❌ Prediction error: {e}")
+        return jsonify({"message": "Server error during prediction", "error": str(e)}), 500
 
 # --------------------------------------------------
 # ✅ Fetch user’s vitamins
@@ -176,7 +191,6 @@ def user_vitamins(current_user):
         {"id": r.id, "vitamin": r.vitamin, "date": r.date}
         for r in records
     ])
-
 
 # --------------------------------------------------
 # ✅ Delete vitamin record
@@ -192,14 +206,12 @@ def delete_vitamin(current_user, id):
     db.session.commit()
     return jsonify({"message": "Deleted successfully"}), 200
 
-
 # --------------------------------------------------
 # ✅ Health check
 # --------------------------------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "Vitamin Detection Backend Running"})
-
 
 # --------------------------------------------------
 # ✅ Run on Render or local
