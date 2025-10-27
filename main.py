@@ -21,7 +21,7 @@ from model.model_utils import (
 app = Flask(__name__)
 
 # ✅ FIXED: Removed trailing slash from Netlify URL
-CORS(app, resources={r"/*": {"origins": "https://spiffy-souffle-abcc33.netlify.app"}}, supports_credentials=True)
+CORS(app, resources={r"/*": {"origins": ["https://neon-crumble-55544a.netlify.app", "http://localhost:3000"]}})
 
 SECRET_KEY = os.environ.get("VITAMIN_SECRET_KEY", "vitamin_secret_key")
 BASE_DIR = os.path.dirname(__file__)
