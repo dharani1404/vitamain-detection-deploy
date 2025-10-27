@@ -20,8 +20,11 @@ from model.model_utils import (
 # === Flask App Config ===
 app = Flask(__name__)
 
-# ✅ FIXED: Removed trailing slash from Netlify URL
-CORS(app, resources={r"/*": {"origins": ["https://neon-crumble-55544a.netlify.app", "http://localhost:3000"]}})
+# ✅ CORRECT CORS CONFIGURATION
+CORS(app, origins=[
+    "https://neon-crumble-55544a.netlify.app",
+    "http://localhost:3000"
+], supports_credentials=True)
 
 SECRET_KEY = os.environ.get("VITAMIN_SECRET_KEY", "vitamin_secret_key")
 BASE_DIR = os.path.dirname(__file__)
@@ -39,6 +42,7 @@ CSV_PATH = os.path.join(MODEL_DIR, "vitamin_deficiency_data.csv")
 model = None
 class_indices = None
 mapping = None
+
 
 def get_model():
     """Lazy load model and mappings once."""
@@ -63,11 +67,13 @@ def get_model():
 
     return model, class_indices, mapping
 
+
 # === Database Utils ===
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db():
     """Initialize SQLite database tables."""
@@ -107,24 +113,35 @@ def init_db():
 
         conn.commit()
         conn.close()
-        print("✅ Database initialized")
+        print("✅ Database initialized successfully.")
     except Exception as e:
-        print("❌ Database init failed:", e)
+        print("❌ Database initialization failed:", e)
         traceback.print_exc()
+
 
 init_db()
 
+
 # === ROUTES ===
+
+@app.after_request
+def apply_cors_headers(response):
+    """Ensure all responses include proper CORS headers."""
+    response.headers.add("Access-Control-Allow-Origin", "https://neon-crumble-55544a.netlify.app")
+    response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+    response.headers.add("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    return response
+
 
 @app.route("/")
 def home():
     return jsonify({"message": "✅ Flask backend is running"}), 200
 
+
 # --- Register User ---
 @app.route("/register", methods=["POST", "OPTIONS"])
 def register():
     if request.method == "OPTIONS":
-        # Preflight CORS check
         return '', 200
 
     try:
@@ -153,6 +170,7 @@ def register():
         print("❌ /register error:", e)
         traceback.print_exc()
         return jsonify({"message": "Internal server error"}), 500
+
 
 # --- Login User ---
 @app.route("/login", methods=["POST", "OPTIONS"])
@@ -197,9 +215,13 @@ def login():
         traceback.print_exc()
         return jsonify({"message": "Internal server error"}), 500
 
+
 # --- Prediction ---
-@app.route("/predict", methods=["POST"])
+@app.route("/predict", methods=["POST", "OPTIONS"])
 def predict():
+    if request.method == "OPTIONS":
+        return '', 200
+
     try:
         if "image" not in request.files:
             return jsonify({"message": "No image uploaded"}), 400
@@ -222,8 +244,8 @@ def predict():
         return jsonify({"message": f"Prediction error: {str(e)}"}), 500
 
 
-# === MAIN ===
+# === MAIN ENTRY ===
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"🚀 Server starting on port {port}")
+    print(f"🚀 Server running on port {port}")
     serve(app, host="0.0.0.0", port=port)
