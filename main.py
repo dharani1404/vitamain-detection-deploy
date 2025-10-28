@@ -28,7 +28,7 @@ FRONTEND_ORIGIN = os.environ.get(
     "https://precious-longma-59eb39.netlify.app"
 )
 
-# ✅ CORS setup (fixed)
+# ✅ Global CORS setup
 CORS(
     app,
     resources={r"/*": {"origins": [FRONTEND_ORIGIN, "http://localhost:3000"]}},
@@ -37,7 +37,7 @@ CORS(
     supports_credentials=True,
 )
 
-# ✅ Allow all OPTIONS preflight requests globally
+# ✅ Handle preflight globally
 @app.before_request
 def handle_options():
     if request.method == "OPTIONS":
@@ -49,7 +49,7 @@ def handle_options():
         headers["Access-Control-Allow-Credentials"] = "true"
         return response
 
-# ✅ Fallback CORS headers after each request (Render safe)
+# ✅ Add fallback CORS headers to every response
 @app.after_request
 def after_request(response):
     response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
@@ -220,26 +220,31 @@ def profile(current_user):
 
 
 # -------------------------
-# PREDICTION ROUTE
+# DETECTION ROUTE (FULLY CORS SAFE)
 # -------------------------
 @app.route("/detect_vitamin", methods=["OPTIONS", "POST"])
 @token_required
 def detect_vitamin(current_user):
-    """Predict vitamin deficiency"""
+    """Predict vitamin deficiency with full CORS protection"""
+
+    # ✅ Helper to add CORS headers always
+    def corsify(response):
+        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, DELETE, PUT"
+        return response
+
+    # ✅ Handle preflight OPTIONS
     if request.method == "OPTIONS":
-        response = jsonify({"message": "CORS preflight success"})
-        response.headers.add("Access-Control-Allow-Origin", FRONTEND_ORIGIN)
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-        response.headers.add("Access-Control-Allow-Credentials", "true")
-        return response, 200
+        return corsify(jsonify({"message": "CORS preflight OK"})), 200
 
     try:
         if not ensure_model_loaded():
-            return jsonify({"message": "Model not available on server"}), 500
+            return corsify(jsonify({"message": "Model not available on server"})), 500
 
         if "image" not in request.files:
-            return jsonify({"message": "No image uploaded"}), 400
+            return corsify(jsonify({"message": "No image uploaded"})), 400
 
         image = request.files["image"]
         uploads = "uploads"
@@ -249,6 +254,7 @@ def detect_vitamin(current_user):
 
         result = predict_vitamin(vitamin_model, class_indices, vitamin_mapping, image_path)
 
+        # Save prediction result to DB
         new_vitamin = UserVitamin(
             user_email=current_user.email,
             vitamin=result.get("mapped_deficiency"),
@@ -257,11 +263,14 @@ def detect_vitamin(current_user):
         db.session.add(new_vitamin)
         db.session.commit()
 
-        return jsonify(result), 200
+        return corsify(jsonify(result)), 200
 
     except Exception as e:
         print("❌ Prediction error:", e)
-        return jsonify({"message": "Server error during prediction", "error": str(e)}), 500
+        return corsify(jsonify({
+            "message": "Server error during prediction",
+            "error": str(e)
+        })), 500
 
 
 # -------------------------
