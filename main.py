@@ -22,23 +22,42 @@ from model.model_utils import (
 # -------------------------
 app = Flask(__name__)
 
-# 🔥 Frontend domain for CORS
+# 🔥 Frontend domain (Netlify)
 FRONTEND_ORIGIN = os.environ.get(
     "FRONTEND_ORIGIN",
     "https://precious-longma-59eb39.netlify.app"
 )
 
-# ✅ CORS setup (allow frontend + localhost)
-CORS(app, resources={r"/*": {"origins": [FRONTEND_ORIGIN, "http://localhost:3000"]}},
-     supports_credentials=True)
+# ✅ CORS setup (fixed)
+CORS(
+    app,
+    resources={r"/*": {"origins": [FRONTEND_ORIGIN, "http://localhost:3000"]}},
+    allow_headers=["Content-Type", "Authorization"],
+    expose_headers=["Content-Type", "Authorization"],
+    supports_credentials=True,
+)
 
+# ✅ Allow all OPTIONS preflight requests globally
+@app.before_request
+def handle_options():
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        headers = response.headers
+        headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+        headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        headers["Access-Control-Allow-Credentials"] = "true"
+        return response
+
+# ✅ Fallback CORS headers after each request (Render safe)
 @app.after_request
 def after_request(response):
-    """Extra fallback for CORS (handles Render OPTIONS issue)"""
-    response.headers.add("Access-Control-Allow-Origin", FRONTEND_ORIGIN)
-    response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization")
-    response.headers.add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+    response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
+
 
 # -------------------------
 # DATABASE CONFIG
@@ -47,6 +66,7 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "vitamin_detection_secre
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
+
 
 # -------------------------
 # DATABASE MODELS
@@ -58,14 +78,17 @@ class Users(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
+
 class UserVitamin(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_email = db.Column(db.String(120), nullable=False)
     vitamin = db.Column(db.String(500))
     date = db.Column(db.String(100))
 
+
 with app.app_context():
     db.create_all()
+
 
 # -------------------------
 # MODEL LOADING
@@ -74,6 +97,7 @@ vitamin_model = None
 class_indices = None
 vitamin_mapping = None
 MODEL_LOADED = False
+
 
 def ensure_model_loaded():
     """Lazy-load model and mapping when needed"""
@@ -100,6 +124,7 @@ def ensure_model_loaded():
     except Exception as e:
         print("❌ Model load error:", e)
         return False
+
 
 # -------------------------
 # JWT AUTH DECORATOR
@@ -128,6 +153,7 @@ def token_required(f):
 
         return f(current_user, *args, **kwargs)
     return decorated
+
 
 # -------------------------
 # AUTH ROUTES
@@ -179,6 +205,7 @@ def login():
         "email": user.email
     }), 200
 
+
 # -------------------------
 # PROFILE
 # -------------------------
@@ -191,6 +218,7 @@ def profile(current_user):
         "email": current_user.email
     })
 
+
 # -------------------------
 # PREDICTION ROUTE
 # -------------------------
@@ -199,11 +227,11 @@ def profile(current_user):
 def detect_vitamin(current_user):
     """Predict vitamin deficiency"""
     if request.method == "OPTIONS":
-        # CORS preflight
         response = jsonify({"message": "CORS preflight success"})
         response.headers.add("Access-Control-Allow-Origin", FRONTEND_ORIGIN)
         response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization")
         response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        response.headers.add("Access-Control-Allow-Credentials", "true")
         return response, 200
 
     try:
@@ -235,6 +263,7 @@ def detect_vitamin(current_user):
         print("❌ Prediction error:", e)
         return jsonify({"message": "Server error during prediction", "error": str(e)}), 500
 
+
 # -------------------------
 # CRUD ROUTES
 # -------------------------
@@ -243,6 +272,7 @@ def detect_vitamin(current_user):
 def user_vitamins(current_user):
     records = UserVitamin.query.filter_by(user_email=current_user.email).all()
     return jsonify([{"id": r.id, "vitamin": r.vitamin, "date": r.date} for r in records])
+
 
 @app.route("/delete_vitamin/<int:id>", methods=["DELETE"])
 @token_required
@@ -254,12 +284,14 @@ def delete_vitamin(current_user, id):
     db.session.commit()
     return jsonify({"message": "Deleted successfully"}), 200
 
+
 # -------------------------
 # HEALTH CHECK
 # -------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "✅ Vitamin Detection Backend Running"}), 200
+
 
 # -------------------------
 # RUN APP
