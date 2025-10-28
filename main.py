@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 from waitress import serve
 
-# Import ML utilities
+# === ML imports ===
 from model.model_utils import (
     ensure_model_downloaded,
     load_vitamin_model,
@@ -18,45 +18,31 @@ from model.model_utils import (
 )
 
 # -------------------------
-# APP + CONFIG
+# APP CONFIG
 # -------------------------
 app = Flask(__name__)
 
-# ✅ Frontend domain (Netlify)
 FRONTEND_ORIGIN = os.environ.get(
     "FRONTEND_ORIGIN",
     "https://precious-longma-59eb39.netlify.app"
 )
 
-# ✅ Global CORS setup
 CORS(
     app,
     resources={r"/*": {"origins": [FRONTEND_ORIGIN, "http://localhost:3000"]}},
+    supports_credentials=True,
     allow_headers=["Content-Type", "Authorization"],
     expose_headers=["Content-Type", "Authorization"],
-    supports_credentials=True,
 )
 
-@app.before_request
-def handle_options():
-    """Handle preflight OPTIONS requests globally"""
-    if request.method == "OPTIONS":
-        response = app.make_default_options_response()
-        headers = response.headers
-        headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
-        headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-        headers["Access-Control-Allow-Credentials"] = "true"
-        return response
-
 @app.after_request
-def after_request(response):
-    """Ensure all responses have CORS headers"""
+def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
+
 
 # -------------------------
 # DATABASE CONFIG
@@ -66,8 +52,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
+
 # -------------------------
-# DATABASE MODELS
+# MODELS
 # -------------------------
 class Users(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -76,14 +63,17 @@ class Users(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
+
 class UserVitamin(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_email = db.Column(db.String(120), nullable=False)
     vitamin = db.Column(db.String(500))
     date = db.Column(db.String(100))
 
+
 with app.app_context():
     db.create_all()
+
 
 # -------------------------
 # MODEL LOADING
@@ -93,19 +83,16 @@ class_indices = None
 vitamin_mapping = None
 MODEL_LOADED = False
 
-def ensure_model_loaded():
-    """Lazy-load model and mapping when needed"""
-    global vitamin_model, class_indices, vitamin_mapping, MODEL_LOADED
 
+def ensure_model_loaded():
+    global vitamin_model, class_indices, vitamin_mapping, MODEL_LOADED
     if MODEL_LOADED:
         return True
-
     print("⚙️ Loading vitamin model...")
     ok = ensure_model_downloaded()
     if not ok:
         print("❌ ensure_model_downloaded failed")
         return False
-
     try:
         vitamin_model = load_vitamin_model()
         class_indices = load_class_indices()
@@ -119,8 +106,9 @@ def ensure_model_loaded():
         print("❌ Model load error:", e)
         return False
 
+
 # -------------------------
-# JWT AUTH DECORATOR
+# JWT DECORATOR
 # -------------------------
 def token_required(f):
     @wraps(f)
@@ -147,6 +135,7 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
     return decorated
 
+
 # -------------------------
 # AUTH ROUTES
 # -------------------------
@@ -170,6 +159,7 @@ def register():
     db.session.commit()
 
     return jsonify({"message": "User registered successfully!"}), 201
+
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -196,6 +186,7 @@ def login():
         "email": user.email
     }), 200
 
+
 # -------------------------
 # PROFILE
 # -------------------------
@@ -208,30 +199,27 @@ def profile(current_user):
         "email": current_user.email
     })
 
+
 # -------------------------
-# DETECTION ROUTE
+# DETECTION ROUTE (CORS SAFE)
 # -------------------------
 @app.route("/detect_vitamin", methods=["OPTIONS", "POST"])
 @token_required
 def detect_vitamin(current_user):
-    """Predict vitamin deficiency with full CORS protection"""
-
-    def corsify(response):
-        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, DELETE, PUT"
-        return response
-
     if request.method == "OPTIONS":
-        return corsify(jsonify({"message": "CORS preflight OK"})), 200
+        response = jsonify({"message": "CORS preflight OK"})
+        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response, 200
 
     try:
         if not ensure_model_loaded():
-            return corsify(jsonify({"message": "Model not available on server"})), 500
+            return jsonify({"message": "Model not available on server"}), 500
 
         if "image" not in request.files:
-            return corsify(jsonify({"message": "No image uploaded"})), 400
+            return jsonify({"message": "No image uploaded"}), 400
 
         image = request.files["image"]
         uploads = "uploads"
@@ -249,61 +237,44 @@ def detect_vitamin(current_user):
         db.session.add(new_vitamin)
         db.session.commit()
 
-        return corsify(jsonify(result)), 200
+        response = jsonify(result)
+        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response, 200
 
     except Exception as e:
         print("❌ Prediction error:", e)
-        return corsify(jsonify({
-            "message": "Server error during prediction",
-            "error": str(e)
-        })), 500
+        response = jsonify({"message": "Server error during prediction", "error": str(e)})
+        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response, 500
+
 
 # -------------------------
-# CRUD ROUTES
+# TEST CORS
 # -------------------------
-@app.route("/user_vitamins", methods=["GET"])
-@token_required
-def user_vitamins(current_user):
-    records = UserVitamin.query.filter_by(user_email=current_user.email).all()
-    return jsonify([{"id": r.id, "vitamin": r.vitamin, "date": r.date} for r in records])
+@app.route("/test_cors", methods=["GET", "OPTIONS"])
+def test_cors():
+    response = jsonify({"message": "CORS working OK"})
+    response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
-@app.route("/delete_vitamin/<int:id>", methods=["DELETE"])
-@token_required
-def delete_vitamin(current_user, id):
-    record = UserVitamin.query.filter_by(id=id, user_email=current_user.email).first()
-    if not record:
-        return jsonify({"message": "Vitamin record not found"}), 404
-    db.session.delete(record)
-    db.session.commit()
-    return jsonify({"message": "Deleted successfully"}), 200
 
 # -------------------------
-# HEALTH CHECK + CORS TEST
+# HEALTH CHECK
 # -------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "✅ Vitamin Detection Backend Running"}), 200
 
-@app.route("/test_cors", methods=["GET", "OPTIONS"])
-def test_cors():
-    resp = jsonify({"message": "CORS working ✅"})
-    resp.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
-    resp.headers["Access-Control-Allow-Credentials"] = "true"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, DELETE, PUT"
-    return resp
 
 # -------------------------
-# RUN APP
+# RUN
 # -------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"🚀 Starting server on port {port}")
-
-    try:
-        print("🔍 Checking if model is ready...")
-        ensure_model_downloaded()
-    except Exception as e:
-        print("⚠️ Model precheck failed:", e)
-
+    print(f"🚀 Server running on port {port}")
     serve(app, host="0.0.0.0", port=port)
