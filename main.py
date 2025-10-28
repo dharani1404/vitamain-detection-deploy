@@ -31,8 +31,6 @@ CORS(
     app,
     resources={r"/*": {"origins": [FRONTEND_ORIGIN, "http://localhost:3000"]}},
     supports_credentials=True,
-    allow_headers=["Content-Type", "Authorization"],
-    expose_headers=["Content-Type", "Authorization"],
 )
 
 @app.after_request
@@ -190,21 +188,23 @@ def profile(current_user):
     })
 
 # -------------------------
-# DETECTION ROUTE (POST + OPTIONS)
+# CORS PREFLIGHT FIX
 # -------------------------
-@app.route("/detect_vitamin", methods=["OPTIONS", "POST"])
+@app.route("/detect_vitamin", methods=["OPTIONS"])
+def preflight_detect():
+    response = jsonify({"message": "CORS preflight OK"})
+    response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response, 200
+
+# -------------------------
+# DETECTION ROUTE (POST)
+# -------------------------
+@app.route("/detect_vitamin", methods=["POST"])
 @token_required
 def detect_vitamin(current_user):
-    # --- Handle CORS preflight ---
-    if request.method == "OPTIONS":
-        response = jsonify({"message": "CORS preflight OK"})
-        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
-        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        return response, 200
-
-    # --- Handle POST request ---
     try:
         if not ensure_model_loaded():
             return jsonify({"message": "Model not available on server"}), 500
@@ -239,18 +239,6 @@ def detect_vitamin(current_user):
         response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
         response.headers["Access-Control-Allow-Credentials"] = "true"
         return response, 500
-
-# -------------------------
-# TEST CORS
-# -------------------------
-@app.route("/test_cors", methods=["GET", "OPTIONS"])
-def test_cors():
-    response = jsonify({"message": "CORS working OK"})
-    response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
 
 # -------------------------
 # HEALTH CHECK
