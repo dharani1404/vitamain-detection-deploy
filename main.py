@@ -43,7 +43,6 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 
-
 # -------------------------
 # DATABASE CONFIG
 # -------------------------
@@ -51,7 +50,6 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "vitamin_detection_secre
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
-
 
 # -------------------------
 # MODELS
@@ -63,17 +61,14 @@ class Users(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
-
 class UserVitamin(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_email = db.Column(db.String(120), nullable=False)
     vitamin = db.Column(db.String(500))
     date = db.Column(db.String(100))
 
-
 with app.app_context():
     db.create_all()
-
 
 # -------------------------
 # MODEL LOADING
@@ -82,7 +77,6 @@ vitamin_model = None
 class_indices = None
 vitamin_mapping = None
 MODEL_LOADED = False
-
 
 def ensure_model_loaded():
     global vitamin_model, class_indices, vitamin_mapping, MODEL_LOADED
@@ -105,7 +99,6 @@ def ensure_model_loaded():
     except Exception as e:
         print("❌ Model load error:", e)
         return False
-
 
 # -------------------------
 # JWT DECORATOR
@@ -135,7 +128,6 @@ def token_required(f):
         return f(current_user, *args, **kwargs)
     return decorated
 
-
 # -------------------------
 # AUTH ROUTES
 # -------------------------
@@ -159,7 +151,6 @@ def register():
     db.session.commit()
 
     return jsonify({"message": "User registered successfully!"}), 201
-
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -186,7 +177,6 @@ def login():
         "email": user.email
     }), 200
 
-
 # -------------------------
 # PROFILE
 # -------------------------
@@ -199,13 +189,13 @@ def profile(current_user):
         "email": current_user.email
     })
 
-
 # -------------------------
-# DETECTION ROUTE (CORS SAFE)
+# DETECTION ROUTE (POST + OPTIONS)
 # -------------------------
 @app.route("/detect_vitamin", methods=["OPTIONS", "POST"])
 @token_required
 def detect_vitamin(current_user):
+    # --- Handle CORS preflight ---
     if request.method == "OPTIONS":
         response = jsonify({"message": "CORS preflight OK"})
         response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
@@ -214,6 +204,7 @@ def detect_vitamin(current_user):
         response.headers["Access-Control-Allow-Credentials"] = "true"
         return response, 200
 
+    # --- Handle POST request ---
     try:
         if not ensure_model_loaded():
             return jsonify({"message": "Model not available on server"}), 500
@@ -249,7 +240,6 @@ def detect_vitamin(current_user):
         response.headers["Access-Control-Allow-Credentials"] = "true"
         return response, 500
 
-
 # -------------------------
 # TEST CORS
 # -------------------------
@@ -262,14 +252,12 @@ def test_cors():
     response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 
-
 # -------------------------
 # HEALTH CHECK
 # -------------------------
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"message": "✅ Vitamin Detection Backend Running"}), 200
-
 
 # -------------------------
 # RUN
