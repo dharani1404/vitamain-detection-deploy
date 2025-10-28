@@ -23,8 +23,7 @@ from model.model_utils import (
 app = Flask(__name__)
 
 FRONTEND_ORIGIN = os.environ.get(
-    "FRONTEND_ORIGIN",
-    "https://precious-longma-59eb39.netlify.app"
+    "FRONTEND_ORIGIN", "https://precious-longma-59eb39.netlify.app"
 )
 
 CORS(
@@ -35,7 +34,17 @@ CORS(
 
 @app.after_request
 def add_cors_headers(response):
-    response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+    """Force CORS headers for all routes."""
+    origin = request.headers.get("Origin")
+    allowed_origins = [
+        "https://precious-longma-59eb39.netlify.app",
+        "http://localhost:3000",
+    ]
+    if origin in allowed_origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "https://precious-longma-59eb39.netlify.app"
+
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -59,11 +68,13 @@ class Users(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
+
 class UserVitamin(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_email = db.Column(db.String(120), nullable=False)
     vitamin = db.Column(db.String(500))
     date = db.Column(db.String(100))
+
 
 with app.app_context():
     db.create_all()
@@ -76,21 +87,26 @@ class_indices = None
 vitamin_mapping = None
 MODEL_LOADED = False
 
+
 def ensure_model_loaded():
     global vitamin_model, class_indices, vitamin_mapping, MODEL_LOADED
     if MODEL_LOADED:
         return True
+
     print("⚙️ Loading vitamin model...")
     ok = ensure_model_downloaded()
     if not ok:
         print("❌ ensure_model_downloaded failed")
         return False
+
     try:
         vitamin_model = load_vitamin_model()
         class_indices = load_class_indices()
         vitamin_mapping = load_mapping()
+
         if vitamin_model is None:
             raise RuntimeError("vitamin_model is None after load")
+
         MODEL_LOADED = True
         print("✅ Model and mappings loaded successfully.")
         return True
@@ -124,6 +140,7 @@ def token_required(f):
             return jsonify({"message": "Invalid token"}), 401
 
         return f(current_user, *args, **kwargs)
+
     return decorated
 
 # -------------------------
@@ -149,6 +166,7 @@ def register():
     db.session.commit()
 
     return jsonify({"message": "User registered successfully!"}), 201
+
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -193,7 +211,7 @@ def profile(current_user):
 @app.route("/detect_vitamin", methods=["OPTIONS"])
 def preflight_detect():
     response = jsonify({"message": "CORS preflight OK"})
-    response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+    response.headers["Access-Control-Allow-Origin"] = "https://precious-longma-59eb39.netlify.app"
     response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -229,14 +247,14 @@ def detect_vitamin(current_user):
         db.session.commit()
 
         response = jsonify(result)
-        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+        response.headers["Access-Control-Allow-Origin"] = "https://precious-longma-59eb39.netlify.app"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         return response, 200
 
     except Exception as e:
         print("❌ Prediction error:", e)
         response = jsonify({"message": "Server error during prediction", "error": str(e)})
-        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+        response.headers["Access-Control-Allow-Origin"] = "https://precious-longma-59eb39.netlify.app"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         return response, 500
 
